@@ -1,0 +1,11 @@
+name: xy-plotter
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - python=3.14
+  - pip
+  - pip:
+    - matplotlib
+    - pandas
+    - numpy

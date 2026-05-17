@@ -56,6 +56,8 @@ class XYPlotter:
         # Configure XY Plot properties
         self.fig, self.ax = plt.subplots(figsize=(10, 5), dpi=100)
         self.fig.canvas.mpl_connect('close_event', self._on_close)
+        # Listen for keypresses (F8 to toggle Start/Stop)
+        self.fig.canvas.mpl_connect('key_press_event', self._on_key)
             
         plt.tight_layout()
         plt.subplots_adjust(top=0.92, bottom=0.1, left=0.1, right=0.92)  # Adjust margins for buttons and labels instead of plt.tight_layout()        
@@ -209,6 +211,25 @@ class XYPlotter:
         self.is_running = False
         if hasattr(self, 'anim') and getattr(self.anim, 'event_source', None) is not None:
             self.anim.event_source.stop()
+
+    def _on_key(self, event):
+        """Handle key press events. Press F8 to toggle Start/Stop."""
+        try:
+            key = event.key
+        except Exception:
+            return
+
+        if key:
+            k = str(key).lower()
+            if k == 'f8':
+                # Reuse the same toggle routine as the button
+                self._run(event)
+            elif k == 'f4':
+                # Close the figure window (triggers close_event -> _on_close)
+                try:
+                    plt.close(self.fig)
+                except Exception:
+                    pass
 
     def update_plot(self, frame):
         """Consumer: Update the plot with data points accumulated in the queue"""
