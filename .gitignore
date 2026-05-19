@@ -1,0 +1,9 @@
+# Ignore Python cache folders
+__pycache__/
+*.py[cod]
+
+# Ignore custom cache directory
+cache/
+
+# Ignore editor/workspace files
+.vscode/
