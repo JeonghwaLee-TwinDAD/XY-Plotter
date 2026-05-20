@@ -1,0 +1,12 @@
+# Normalize text files in the repository
+* text=auto
+
+# Force Python files to use LF in the repo
+*.py text eol=lf
+
+# Normalize common text formats
+*.md text eol=lf
+*.txt text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+.gitignore text eol=lf

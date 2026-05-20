@@ -34,7 +34,7 @@ def main() -> None:
     # ---------------------------------------------------------------
     # Window 2: 4-way + downstream tests
     # ---------------------------------------------------------------
-    tpi.plotter = tpi._make_plotter(update_interval=50)
+    tpi.plotter = tpi._make_plotter(update_interval=10)
     tpi.plotter.part_text.set_text(tpi._result_text)
 
     for tid in WINDOW_2_IDS:

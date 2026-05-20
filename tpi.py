@@ -35,6 +35,7 @@ from config import (
 )
 from datalogger import DataLogger
 from plotter import XYPlotter
+from hardware import HardwareInterface
 
 
 class TPI:
@@ -54,6 +55,7 @@ class TPI:
         )
 
         self.plotter = self._make_plotter(update_interval=10)
+        self.hw = HardwareInterface()
 
     # ------------------------------------------------------------------
     # Plotter lifecycle helpers
@@ -89,7 +91,7 @@ class TPI:
 
     def startup(self) -> None:
         """System-level initialisation (hardware power-on, self-test, etc.)."""
-        pass  # extend for real hardware
+        self.hw.connect()
 
     def preUUT(self) -> None:
         """Part-level setup before the first test run."""
@@ -122,6 +124,7 @@ class TPI:
             part_number=PART_NUMBER,
             serial_number=self.serial_number,
         )
+        self.hw.disconnect()
 
     # ------------------------------------------------------------------
     # Acquisition
@@ -140,11 +143,14 @@ class TPI:
                     break
                 plt.pause(0.05)
         else:
-            # Real hardware path: set valve states here, then call plotter.start()
-            # e.g. self.tss.set_valve_mode(mode)
-            #      self.plotter.start()
-            #      while not acquisition_done(): plt.pause(0.05)
-            pass
+            self.hw.set_valve_mode(mode)
+            self.plotter.start()
+            sweep_thread = self.hw.sweep_spool(test_id, mode, self.plotter.data_queue, self.plotter._stop_event)
+            
+            while sweep_thread.is_alive() or not self.plotter.data_queue.empty():
+                if self.plotter._stop_event.is_set():
+                    break
+                plt.pause(0.05)
 
     # ------------------------------------------------------------------
     # Analysis dispatch and annotation
