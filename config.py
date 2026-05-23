@@ -13,7 +13,7 @@ from typing import Dict
 # ---------------------------------------------------------------------------
 # Hardware / fixture constants
 # ---------------------------------------------------------------------------
-SIMULATION: bool = False                 # True → use CSV files; False → live hardware
+SIMULATION: bool = False            # True → use CSV files; False → live hardware
 
 SUPPLY_PRESSURE: float  = 3000.0       # psi
 STROKE: float           = 10.0         # thousandths of an inch (plot x-axis half-range)
