@@ -45,14 +45,13 @@ class TPI:
         self.supply_press: float = SUPPLY_PRESSURE
         self.serial_number: str  = ""           # set by operator before postUUT()
         self._x_intercepts: Dict[str, float]    = {}
+        self._active_window: int                 = 1   # 1 or 2; tracks current window
         self._is_switching_windows: bool         = False
         self._is_executing: bool                 = False
+        self._test_idx: int                      = 0
 
         # Running text for the info box; accumulates across all tests
-        self._result_text: str = (
-            f"P/N: {PART_NUMBER}\n"
-            f"DATE: {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
-        )
+        self._result_text: str = ""
 
         self.plotter = self._make_plotter(update_interval=10)
         self.hw = HardwareInterface()
@@ -65,6 +64,9 @@ class TPI:
         p = XYPlotter(update_interval=update_interval)
         p.btn_run.on_clicked(self._on_restart)
         p.fig.canvas.mpl_connect("close_event", self._on_window_close)
+        p.fig.canvas.mpl_connect("key_press_event", self._on_key)
+        
+        p.set_window_title(f"FlowGrind | P/N: {PART_NUMBER} | S/N: {self.serial_number} | Test Stand: {TEST_STAND_NUMBER}")
         p.part_text.set_text(self._result_text)
         return p
 
@@ -72,18 +74,37 @@ class TPI:
         if not self._is_switching_windows:
             self.postUUT()
 
+    def _on_key(self, event) -> None:
+        """Handle keyboard shortcuts mirroring button clicks."""
+        key = str(getattr(event, "key", "") or "").lower()
+        if key == "f8":
+            self._on_restart(event)
+
     def _on_restart(self, _event) -> None:
-        """Re-run the current test group when the operator clicks Start."""
+        """Run the next test in the sequence when the operator clicks Start."""
         if not self.plotter.is_running or self._is_executing:
             return
-        self.plotter.clear()
-        group = WINDOW_2_IDS if any(tid >= 2 for tid in self._current_group()) else WINDOW_1_IDS
-        for tid in group:
-            self.execute(tid)
-
-    def _current_group(self):
-        # Infer which group is active from which series_data keys exist
-        return [k for k in self.plotter.series_data if isinstance(k, int)]
+            
+        group = WINDOW_2_IDS if self._active_window == 2 else WINDOW_1_IDS
+            
+        if self._test_idx >= len(group):
+            self._test_idx = 0
+            
+        if self._test_idx == 0:
+            self.plotter.clear()
+            self._result_text = ""
+            self._x_intercepts.clear()
+            self.plotter.part_text.set_text("")
+            
+        if not self.plotter.is_running:
+            self.plotter.start()
+            
+        tid = group[self._test_idx]
+        self.execute(tid)
+            
+        if self.plotter.is_running:
+            self._test_idx += 1
+            self.plotter.set_ready()
 
     # ------------------------------------------------------------------
     # Test lifecycle (matches original LabVIEW convention)
@@ -91,11 +112,26 @@ class TPI:
 
     def startup(self) -> None:
         """System-level initialisation (hardware power-on, self-test, etc.)."""
-        self.hw.connect()
+        self.hw.connect_daq()
 
     def preUUT(self) -> None:
         """Part-level setup before the first test run."""
         pass  # extend for operator prompt, barcode scan, fixture check, etc.
+
+    def switch_to_window_2(self) -> None:
+        """
+        Block until the operator closes Window 1, then open a fresh plotter
+        for the Window-2 test group.
+
+        Call this between the Window-1 and Window-2 execute() loops so that
+        main.py never needs to touch private attributes.
+        """
+        self._is_switching_windows = True
+        plt.show()                          # blocks until Window 1 is closed
+        self._is_switching_windows = False
+        self._active_window = 2
+        self._test_idx = 0
+        self.plotter = self._make_plotter(update_interval=10)
 
     def execute(self, test_id: int) -> None:
         """
@@ -110,12 +146,13 @@ class TPI:
         cfg = TEST_SEQUENCE[test_id]
         self._is_executing = True
         try:
-            self.plotter.set_window_title(cfg.title)
-            self._acquire(cfg.sim_file, test_id, cfg.mode)
-            self._analyse_and_annotate(test_id, cfg.mode)
+            title = f"{cfg.title} | P/N: {PART_NUMBER} | S/N: {self.serial_number} | Test Stand: {TEST_STAND_NUMBER}"
+            self.plotter.set_window_title(title)
+            self._acquire(test_id, cfg.mode)
+            if self.plotter.is_running:
+                self._analyse_and_annotate(test_id, cfg.mode)
         finally:
             self._is_executing = False
-            self.plotter.set_idle()
 
     def postUUT(self) -> None:
         """Post-test teardown: save data, prompt operator, release fixture."""
@@ -124,33 +161,21 @@ class TPI:
             part_number=PART_NUMBER,
             serial_number=self.serial_number,
         )
-        self.hw.disconnect()
+        self.hw.disconnect_daq()
 
     # ------------------------------------------------------------------
     # Acquisition
     # ------------------------------------------------------------------
 
-    def _acquire(self, sim_file: str, test_id: int, mode: str) -> None:
-        """Load simulation data and wait until acquisition is complete."""
-        if SIMULATION:
-            self.plotter.load_simulation(sim_file, test_id)
-            # The 3way-C1 window already has the plot open; auto-start C2 sweep
-            if mode == "3way-C2":
-                self.plotter.start()
-            # Block until the event loop drains all staged samples
-            while not self.plotter.simulation_finished():
-                if self.plotter._stop_event.is_set():
-                    break
-                plt.pause(0.05)
-        else:
-            self.hw.set_valve_mode(mode)
-            self.plotter.start()
-            sweep_thread = self.hw.sweep_spool(test_id, mode, self.plotter.data_queue, self.plotter._stop_event)
-            
-            while sweep_thread.is_alive() or not self.plotter.data_queue.empty():
-                if self.plotter._stop_event.is_set():
-                    break
-                plt.pause(0.05)
+    def _acquire(self, test_id: int, mode: str) -> None:
+        """Wait until acquisition is complete."""
+        self.plotter.start()
+        sweep_thread = self.hw.sweep_spool(test_id, mode, self.plotter.data_queue, self.plotter.abort_event)
+        
+        while sweep_thread.is_alive() or not self.plotter.data_queue.empty():
+            if not self.plotter.is_running or self.plotter.abort_event.is_set():
+                break
+            plt.pause(0.01)
 
     # ------------------------------------------------------------------
     # Analysis dispatch and annotation
@@ -237,8 +262,8 @@ class TPI:
                 summary = an.summarise_4way(self._x_intercepts)
                 ann = self.plotter.flow_ax.annotate(
                     f"4Way Lap Distance: {summary.distance:.3g} in",
-                    xy=(summary.mid_x_raw, 0), xytext=(-10, 40),
-                    textcoords="offset points", ha="center", va="bottom", color="black",
+                    xy=(summary.mid_x_raw, 0), xytext=(-60, 60),
+                    textcoords="offset points", ha="right", va="bottom", color="black",
                     arrowprops=dict(arrowstyle="->", color="black"),
                 )
                 ann.series_id = test_id
@@ -250,16 +275,23 @@ class TPI:
     def _handle_no_load(self, test_id: int, data_xy: np.ndarray) -> str:
         r = an.analyse_no_load(data_xy, self.supply_press)
 
-        for label, x, y, color, offset in (
+        for label, x, y, color, dy in (
             (f"Max. No Load Drift: {int(r.max_pressure)} psi, {'PASS' if r.max_passed else 'FAIL'}",
-             r.x_max, r.max_pressure - self.supply_press * 0.5, "red",  ( 30,  30)),
+             r.x_max, r.max_pressure - self.supply_press * 0.5, "red",  40),
             (f"Min. No Load Drift: {int(r.min_pressure)} psi, {'PASS' if r.min_passed else 'FAIL'}",
-             r.x_min, r.min_pressure - self.supply_press * 0.5, "blue", (-30, -30)),
+             r.x_min, r.min_pressure - self.supply_press * 0.5, "blue", -40),
         ):
+            ha = "center"
+            dx = 0
+            if x > 5.0:
+                ha, dx = "right", -20
+            elif x < -5.0:
+                ha, dx = "left", 20
+
             ann = self.plotter.ax.annotate(
-                label, xy=(x, y), xytext=offset,
-                textcoords="offset points", ha="center",
-                va="bottom" if offset[1] > 0 else "top", color=color,
+                label, xy=(x, y), xytext=(dx, dy),
+                textcoords="offset points", ha=ha,
+                va="bottom" if dy > 0 else "top", color=color,
                 arrowprops=dict(arrowstyle="->", color=color),
             )
             ann.series_id = test_id
@@ -283,7 +315,7 @@ class TPI:
 
         ann = self.plotter.ax.annotate(
             f"PG Slope: {abs(r.slope_psi_per_thou):.2g} psi/thou",
-            xy=(r.mid_x_raw, r.mid_y), xytext=(30, 10),
+            xy=(r.mid_x_raw, r.mid_y), xytext=(60, -60),
             textcoords="offset points", ha="left", va="top", color="green",
             arrowprops=dict(arrowstyle="->", color="green"),
         )
@@ -297,8 +329,8 @@ class TPI:
 
         ann = self.plotter.flow_ax.annotate(
             f"Max Leakage: {r.max_leak:g} gpm",
-            xy=(r.x_peak, r.y_peak), xytext=(0, 20),
-            textcoords="offset points", ha="center", va="bottom", color="purple",
+            xy=(r.x_peak, r.y_peak), xytext=(60, 60),
+            textcoords="offset points", ha="left", va="bottom", color="purple",
             arrowprops=dict(arrowstyle="->", color="purple"),
         )
         ann.series_id = test_id

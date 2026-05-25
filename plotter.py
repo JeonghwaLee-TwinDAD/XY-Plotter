@@ -24,7 +24,6 @@ from typing import Dict, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 from matplotlib.animation import FuncAnimation
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
@@ -32,6 +31,12 @@ from matplotlib.widgets import Button
 
 from config import FLOW_LIMIT, STROKE, SUPPLY_PRESSURE
 
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+# Series IDs routed to the primary (pressure) axis rather than the flow axis.
+# Override by passing pressure_series_ids to XYPlotter.__init__().
+_DEFAULT_PRESSURE_IDS: frozenset = frozenset({3, 4})
 
 # ---------------------------------------------------------------------------
 # Internal type aliases
@@ -47,13 +52,20 @@ class XYPlotter:
     # Construction / layout
     # ------------------------------------------------------------------
 
-    def __init__(self, update_interval: int = 20) -> None:
+    def __init__(
+        self,
+        update_interval: int = 10,
+        pressure_series_ids: frozenset = _DEFAULT_PRESSURE_IDS,
+    ) -> None:
         """
         Args:
-            update_interval: FuncAnimation frame interval in milliseconds.
-                             Use ~10 ms for fast sweeps, ~50 ms for slow ones.
+            update_interval:     FuncAnimation frame interval in milliseconds.
+                                 Use ~10 ms for fast sweeps, ~50 ms for slow ones.
+            pressure_series_ids: Series IDs that belong on the primary pressure
+                                 axis.  All other integer IDs go to flow_ax.
         """
         self._interval = update_interval
+        self._pressure_ids = pressure_series_ids
 
         self._build_figure()
         self._build_layout()
@@ -89,7 +101,7 @@ class XYPlotter:
         self.flow_ax: Axes = self.ax.twinx()
         self.flow_ax.set_ylabel("Flow (gpm)")
         self.flow_ax.set_ylim(-FLOW_LIMIT, FLOW_LIMIT)
-        self.flow_ax.set_yticks(np.arange(-FLOW_LIMIT, FLOW_LIMIT, FLOW_LIMIT / 4))
+        self.flow_ax.set_yticks(np.linspace(-FLOW_LIMIT, FLOW_LIMIT, 7))
 
         # Quadrant labels
         for label, (x, y) in {"D": (0.95, 0.9), "B": (0.05, 0.9),
@@ -121,6 +133,14 @@ class XYPlotter:
             verticalalignment="top", color="gray",
         )
 
+        # Live value diagnostic (below timing)
+        self.live_val_text = self.ax.text(
+            0.01, 0.96, "",
+            transform=self.ax.transAxes,
+            fontsize=8, family="monospace",
+            verticalalignment="top", color="tab:red",
+        )
+
         # Buttons
         ax_run   = plt.axes([0.66, 0.93, 0.12, 0.05])
         ax_clear = plt.axes([0.80, 0.93, 0.12, 0.05])
@@ -141,18 +161,25 @@ class XYPlotter:
         self.is_running: bool = False
         self._last_frame_time: float = time.time()
 
-        # Simulation source arrays (populated by load_simulation)
-        self._sim_x: List[float] = []
-        self._sim_y: List[float] = []
-        self._sim_series_id: SeriesKey = 0
-        self._sim_index: int = 0
+        self._base_window_title: str = "FlowGrind - XY Plotter"
+        self._last_timestamp: str = ""
 
         # Thread-safe queues
         self.data_queue:  queue.Queue[DataPoint] = queue.Queue()
         self.event_queue: queue.Queue[dict]      = queue.Queue()
 
+        # Live tracking dots for the active sweep
+        self.live_point_ax, = self.ax.plot([], [], marker="o", color="red", markersize=6, zorder=10)
+        self.live_point_flow, = self.flow_ax.plot([], [], marker="o", color="red", markersize=6, zorder=10)
+
         # Thread lifecycle
         self._stop_event = threading.Event()
+        self.abort_event = threading.Event()
+
+    @property
+    def stop_event(self) -> threading.Event:
+        """Public handle so callers can check/wait without touching internals."""
+        return self._stop_event
 
     # ------------------------------------------------------------------
     # Background thread (Producer / QMH event loop)
@@ -176,37 +203,15 @@ class XYPlotter:
                 cmd_dict = self.event_queue.get(timeout=self._interval / 1000.0)
                 self._handle_command(cmd_dict)
             except queue.Empty:
-                self._poll_simulation()
+                pass
 
     def _handle_command(self, cmd_dict: dict) -> None:
         cmd = cmd_dict.get("cmd", "")
         if cmd == "START":
-            # If we previously finished, rewind the simulation
-            if self._sim_index >= len(self._sim_x):
-                self._sim_index = 0
-            if self._sim_index == 0:
-                with self.data_queue.mutex:
-                    self.data_queue.queue.clear()
-        elif cmd == "STOP":
-            pass
-        elif cmd == "RESET_INDEX":
-            self._sim_index = 0
+            with self.data_queue.mutex:
+                self.data_queue.queue.clear()
         elif cmd == "EXIT":
             self._stop_event.set()
-
-    def _poll_simulation(self) -> None:
-        """Push the next simulation sample into data_queue (Timeout case)."""
-        if (
-            self.is_running
-            and self._sim_x
-            and self._sim_index < len(self._sim_x)
-        ):
-            self.data_queue.put((
-                self._sim_series_id,
-                self._sim_x[self._sim_index],
-                self._sim_y[self._sim_index],
-            ))
-            self._sim_index += 1
 
     # ------------------------------------------------------------------
     # FuncAnimation consumer
@@ -228,14 +233,23 @@ class XYPlotter:
         self._last_frame_time = now
         self.timing_text.set_text(f"Plot Loop: {loop_ms:.1f} ms")
 
+        current_timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        if current_timestamp != self._last_timestamp:
+            self._last_timestamp = current_timestamp
+            self.fig.canvas.manager.set_window_title(f"{self._base_window_title} | {current_timestamp}")
+
         has_new = False
-        while not self.data_queue.empty():
+        last_x, last_y = None, None
+        last_sid = None
+        while True:
             try:
                 series_id, x, y = self.data_queue.get_nowait()
                 self._ensure_series(series_id)
                 self.series_data[series_id]["X"].append(x)
                 self.series_data[series_id]["Y"].append(y)
                 has_new = True
+                last_x, last_y = x, y
+                last_sid = series_id
             except queue.Empty:
                 break
 
@@ -243,17 +257,18 @@ class XYPlotter:
             for sid, line in self.lines.items():
                 d = self.series_data[sid]
                 line.set_data(d["X"], d["Y"])
+            
+            if last_x is not None and last_y is not None and last_sid is not None:
+                if last_sid in self._pressure_ids:
+                    self.live_val_text.set_text(f"X: {last_x:.3f} | Press: {last_y:.1f}")
+                    self.live_point_ax.set_data([last_x], [last_y])
+                    self.live_point_flow.set_data([], [])
+                else:
+                    self.live_val_text.set_text(f"X: {last_x:.3f} | Flow: {last_y:.1f}")
+                    self.live_point_flow.set_data([last_x], [last_y])
+                    self.live_point_ax.set_data([], [])
 
-        # Auto-idle when simulation finishes
-        if (
-            self._sim_x
-            and self._sim_index >= len(self._sim_x)
-            and self.data_queue.empty()
-            and self.is_running
-        ):
-            self.set_idle()
-
-        return list(self.lines.values()) + [self.part_text, self.timing_text] + self.dynamic_annotations
+        return list(self.lines.values()) + [self.part_text, self.timing_text, self.live_val_text, self.live_point_ax, self.live_point_flow] + self.dynamic_annotations
 
     def _ensure_series(self, series_id: SeriesKey) -> None:
         """Create series_data entry and a blank Line2D on first encounter."""
@@ -261,7 +276,7 @@ class XYPlotter:
             return
         self.series_data[series_id] = {"X": [], "Y": []}
         color = "grey"
-        ax = self.ax if series_id in (3, 4) else self.flow_ax
+        ax = self.ax if series_id in self._pressure_ids else self.flow_ax
         line, = ax.plot(
             [], [], marker="s", markersize=5, color=color,
             linewidth=0, markerfacecolor="white", markeredgecolor=color,
@@ -272,52 +287,49 @@ class XYPlotter:
     # Public control API
     # ------------------------------------------------------------------
 
-    def load_simulation(self, csv_path: str, series_id: SeriesKey) -> None:
-        """Stage simulation data from a CSV file.
-
-        Expected columns: ``xname``, ``yname``.
-        """
-        df = pd.read_csv(csv_path, sep=",")
-        self._sim_x        = df["xname"].tolist()
-        self._sim_y        = df["yname"].tolist()
-        self._sim_series_id = series_id
-        self.event_queue.put({"cmd": "RESET_INDEX"})
-        self._sim_index = 0
-        self.set_ready()
-
     def start(self) -> None:
         """Start (or resume) data acquisition."""
         self.is_running = True
+        self.abort_event.clear()
         self.btn_run.label.set_text("Stop")
         self.event_queue.put({"cmd": "START"})
 
     def stop(self) -> None:
         """Pause data acquisition without resetting state."""
         self.is_running = False
+        self.abort_event.set()
         self.btn_run.label.set_text("Start")
+        self.live_val_text.set_text("")
+        self.live_point_ax.set_data([], [])
+        self.live_point_flow.set_data([], [])
         self.event_queue.put({"cmd": "STOP"})
+
+    def _set_btn_run_state(self, *, active: bool) -> None:
+        """Configure the Run button's active state and matching label colour."""
+        self.btn_run.label.set_text("Start")
+        self.btn_run.set_active(active)
+        self.btn_run.label.set_color("black" if active else "grey")
+        self.fig.canvas.draw_idle()
 
     def set_idle(self) -> None:
         """Disable the run button after a test completes."""
         self.is_running = False
-        self.btn_run.label.set_text("Start")
-        self.btn_run.set_active(False)
-        self.btn_run.label.set_color("grey")
-        self.fig.canvas.draw_idle()
+        self._set_btn_run_state(active=False)
+        self.live_point_ax.set_data([], [])
+        self.live_point_flow.set_data([], [])
+        self.live_val_text.set_text("")
 
     def set_ready(self) -> None:
         """Re-enable the run button (e.g. after loading new data)."""
         self.is_running = False
-        self.btn_run.label.set_text("Start")
-        self.btn_run.set_active(True)
-        self.btn_run.label.set_color("black")
-        self.fig.canvas.draw_idle()
+        self._set_btn_run_state(active=True)
+        self.live_point_ax.set_data([], [])
+        self.live_point_flow.set_data([], [])
+        self.live_val_text.set_text("")
 
     def clear(self, _event=None) -> None:
         """Reset all plotted data, annotations, and result text."""
         self.set_ready()
-        self._sim_index = 0
-        self.event_queue.put({"cmd": "RESET_INDEX"})
 
         for k in self.series_data:
             self.series_data[k] = {"X": [], "Y": []}
@@ -342,6 +354,9 @@ class XYPlotter:
             if "Supply Press:" in line:
                 break
         self.part_text.set_text("\n".join(header_lines) + "\n")
+        self.live_val_text.set_text("")
+        self.live_point_ax.set_data([], [])
+        self.live_point_flow.set_data([], [])
         self.fig.canvas.draw_idle()
 
     def get_series_xy(self, series_id: SeriesKey) -> Optional[np.ndarray]:
@@ -374,15 +389,9 @@ class XYPlotter:
         self.dynamic_annotations.append(ann)
 
     def set_window_title(self, title: str) -> None:
-        self.fig.canvas.manager.set_window_title(title)
-
-    def simulation_finished(self) -> bool:
-        """True once all staged simulation rows have been consumed."""
-        return (
-            bool(self._sim_x)
-            and self._sim_index >= len(self._sim_x)
-            and self.data_queue.empty()
-        )
+        self._base_window_title = title
+        self._last_timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        self.fig.canvas.manager.set_window_title(f"{self._base_window_title} | {self._last_timestamp}")
 
     # ------------------------------------------------------------------
     # Internal event handlers
@@ -396,6 +405,7 @@ class XYPlotter:
 
     def _on_close(self, _event) -> None:
         self._stop_event.set()
+        self.abort_event.set()
         self.event_queue.put({"cmd": "EXIT"})
         self.is_running = False
         if getattr(self.anim, "event_source", None) is not None:

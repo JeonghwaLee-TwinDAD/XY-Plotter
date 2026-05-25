@@ -191,6 +191,12 @@ def analyse_no_load(data_xy: np.ndarray, supply_pressure: float = SUPPLY_PRESSUR
     valid = (data_xy[:, 0] >= -STROKE) & (data_xy[:, 0] <= STROKE)
     pts   = data_xy[valid] if valid.any() else data_xy
 
+    if len(pts) == 0:
+        return NoLoadResult(
+            summary_text="No Load: FAIL (No valid data)", passed=False,
+            max_passed=False, min_passed=False,
+        )
+
     x, y = pts[:, 0], pts[:, 1]
     max_y = float(np.max(y))
     min_y = float(np.min(y))
@@ -199,8 +205,8 @@ def analyse_no_load(data_xy: np.ndarray, supply_pressure: float = SUPPLY_PRESSUR
 
     max_psi    = supply_pressure * 0.5 + max_y
     min_psi    = supply_pressure * 0.5 + min_y
-    max_passed = NO_LOAD_DRIFT_MAX <= max_psi
-    min_passed = NO_LOAD_DRIFT_MIN <= min_psi
+    max_passed = max_psi <= NO_LOAD_DRIFT_MAX
+    min_passed = min_psi >= NO_LOAD_DRIFT_MIN
 
     result_str = "PASS" if (max_passed and min_passed) else "FAIL"
     text = (
@@ -237,12 +243,20 @@ def analyse_pressure_gain(
     """
     Compute pressure gain slope between ±40 % of supply pressure.
     """
+    if len(data_xy) < 2:
+        return PressureGainResult(summary_text="PG Slope: FAIL (Not enough data)", passed=False)
+
     x, y = data_xy[:, 0], data_xy[:, 1]
     y_lo = -0.4 * supply_pressure
     y_hi =  0.4 * supply_pressure
 
     order       = np.argsort(y)
     x_s, y_s   = x[order], y[order]
+
+    # Remove duplicate Y values to prevent interp1d ValueError
+    y_s, unique_idx = np.unique(y_s, return_index=True)
+    x_s = x_s[unique_idx]
+
     x_s_scaled  = x_s * PRESSURE_GAIN_X_SCALE
 
     interp_raw    = interp1d(y_s, x_s,        kind="linear", fill_value="extrapolate")
@@ -286,6 +300,9 @@ def analyse_leakage(data_xy: np.ndarray) -> LeakageResult:
     """Compute peak-to-peak leakage flow over the spool stroke range."""
     valid = (data_xy[:, 0] >= -STROKE) & (data_xy[:, 0] <= STROKE)
     pts   = data_xy[valid] if valid.any() else data_xy
+
+    if len(pts) == 0:
+        return LeakageResult(summary_text="Max Leakage: FAIL (No valid data)", passed=False)
 
     x, y   = pts[:, 0], pts[:, 1]
     max_y  = float(np.max(y))

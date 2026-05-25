@@ -61,10 +61,10 @@ class DataLogger:
             return None
 
         # Pad shorter columns with NaN so DataFrame is rectangular
-        for col in columns:
-            deficit = max_len - len(columns[col])
+        for data in columns.values():
+            deficit = max_len - len(data)
             if deficit > 0:
-                columns[col] = columns[col] + [np.nan] * deficit
+                data.extend([np.nan] * deficit)
 
         df = pd.DataFrame(columns)
         os.makedirs(DATALOG_PATH, exist_ok=True)

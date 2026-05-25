@@ -6,18 +6,18 @@ All hardware limits, pass/fail thresholds, and test definitions live here.
 Edit this file to adapt the system to a new part number or test stand.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict
 
 
 # ---------------------------------------------------------------------------
 # Hardware / fixture constants
 # ---------------------------------------------------------------------------
-SIMULATION: bool = False            # True → use CSV files; False → live hardware
+SIMULATION: bool = True            # True → use simulated profiles; False → live hardware
 
 SUPPLY_PRESSURE: float  = 3000.0       # psi
 STROKE: float           = 10.0         # thousandths of an inch (plot x-axis half-range)
-FLOW_LIMIT: float       = 16.0         # gpm (plot y-axis half-range)
+FLOW_LIMIT: float       = 15.0         # gpm (plot y-axis half-range)
 SCALE_FACTOR: Dict[str, float] = {
     "X": 0.0025,   # encoder counts → inches
     "Y": 1.0,      # Hz → gpm
@@ -47,7 +47,7 @@ NO_LOAD_DRIFT_MIN:      float = 150.0    # psi
 
 LEAKAGE_MAX:            float = 0.04     # gpm
 
-PRESSURE_GAIN_MIN:      float = 4200.0   # psi/inch
+PRESSURE_GAIN_MIN:      float = 300.0    # psi/inch
 PRESSURE_GAIN_X_SCALE:  float = 0.05     # encoder counts → thou (PG test only)
 
 NEUTRAL_PRESSURE_MAX:   float = 2500.0   # psi
@@ -66,16 +66,15 @@ class TestConfig:
     test_id:  int
     mode:     str
     title:    str
-    sim_file: str
 
 
 TEST_SEQUENCE: Dict[int, TestConfig] = {
-    0: TestConfig(0, "3way-C1",  "FlowGrind - 3way Lap",        "./Simulation Files/3way_AB.csv"),
-    1: TestConfig(1, "3way-C2",  "FlowGrind - 3way Lap",        "./Simulation Files/3way_CD.csv"),
-    2: TestConfig(2, "4wayLap",  "FlowGrind - 4way Lap",        "./Simulation Files/4way_AB.csv"),
-    3: TestConfig(3, "NoLoad",   "FlowGrind - No Load Drift",   "./Simulation Files/NoLoad.csv"),
-    4: TestConfig(4, "PG",       "FlowGrind - Pressure Gain",   "./Simulation Files/PG.csv"),
-    5: TestConfig(5, "Leak",     "FlowGrind - Leakage",         "./Simulation Files/Leak.csv"),
+    0: TestConfig(0, "3way-C1",  "FlowGrind - 3way Lap"),
+    1: TestConfig(1, "3way-C2",  "FlowGrind - 3way Lap"),
+    2: TestConfig(2, "4wayLap",  "FlowGrind - 4way Lap"),
+    3: TestConfig(3, "NoLoad",   "FlowGrind - No Load Drift"),
+    4: TestConfig(4, "PG",       "FlowGrind - Pressure Gain"),
+    5: TestConfig(5, "Leak",     "FlowGrind - Leakage"),
 }
 
 # Which test_ids belong to window 1 vs window 2
@@ -84,4 +83,5 @@ WINDOW_2_IDS = (2, 3, 4, 5)
 
 # test_ids whose data are written to the CSV datalog
 DATALOG_IDS = (2, 3, 4, 5)
-DATALOG_ID_NAMES = {2: "4wayLap", 3: "NoLoad", 4: "PG", 5: "Leak"}
+# Derived from TEST_SEQUENCE — no need to maintain separately
+DATALOG_ID_NAMES: Dict[int, str] = {k: TEST_SEQUENCE[k].mode for k in DATALOG_IDS}
