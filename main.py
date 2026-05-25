@@ -23,18 +23,25 @@ def main() -> None:
     # ---------------------------------------------------------------
     # Window 1: 3-way lap tests
     # ---------------------------------------------------------------
+    for test_id in WINDOW_1_IDS:
+        tpi.execute(test_id)
+
     # Block until operator closes Window 1, then open Window 2
     tpi.switch_to_window_2()
 
     # ---------------------------------------------------------------
     # Window 2: 4-way + downstream tests
     # ---------------------------------------------------------------
+    for test_id in WINDOW_2_IDS:
+        tpi.execute(test_id)
+
     plt.show()
 
     # ---------------------------------------------------------------
     # Teardown
     # ---------------------------------------------------------------
-    tpi.postUUT()
+    # Note: tpi.postUUT() is triggered automatically when the operator
+    # closes Window 2, handled by TPI._on_window_close.
 
 
 if __name__ == "__main__":

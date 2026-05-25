@@ -116,7 +116,8 @@ class TPI:
 
     def preUUT(self) -> None:
         """Part-level setup before the first test run."""
-        pass  # extend for operator prompt, barcode scan, fixture check, etc.
+        print(f"\n--- FlowGrind Setup | P/N: {PART_NUMBER} ---")
+        self.serial_number = input("Enter Serial Number: ").strip()
 
     def switch_to_window_2(self) -> None:
         """
