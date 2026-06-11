@@ -72,5 +72,5 @@ class DataLogger:
         filename  = f"{part_number}_{serial_number}_{timestamp}.csv"
         filepath  = os.path.join(DATALOG_PATH, filename)
         df.to_csv(filepath, index=False)
-        print(f"[DataLogger] Saved → {filepath}")
+        print(f"[DataLogger] Saved -> {filepath}")
         return filepath

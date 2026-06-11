@@ -8,6 +8,8 @@ Runs the two-window test sequence:
   Window 2 — 4-way lap, No Load, Pressure Gain, Leakage (IDs 2–5)
 """
 
+#import matplotlib
+#matplotlib.use('WebAgg')
 import matplotlib.pyplot as plt
 
 from config import WINDOW_1_IDS, WINDOW_2_IDS

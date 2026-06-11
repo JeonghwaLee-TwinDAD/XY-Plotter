@@ -1,7 +1,9 @@
 # -*- mode: python ; coding: utf-8 -*-
+from PyInstaller.utils.hooks import collect_data_files
 from PyInstaller.utils.hooks import copy_metadata
 
 datas = []
+datas += collect_data_files('matplotlib')
 datas += copy_metadata('nitypes')
 datas += copy_metadata('nidaqmx')
 
