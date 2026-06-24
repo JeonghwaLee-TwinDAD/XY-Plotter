@@ -199,7 +199,7 @@ class XYPlotter:
                 fontsize=8, family="monospace", fontweight="bold",
                 verticalalignment="center", horizontalalignment="left", color=style.INK,
             )
-            style.pin_text_top_left(self.fig, self.sn_text, x_px=510, top_px=25)
+            style.pin_text_above_left(self.fig, self.sn_text, self.ax, x_offset_px=410, gap_px=25)
             ax_pn = self.fig.add_axes([0.36, 0.916, 0.14, 0.068])
             self.pn_textbox = TextBox(ax_pn, "P/N: ", initial="")
             self.pn_textbox.label.set_fontsize(8)
@@ -211,8 +211,8 @@ class XYPlotter:
             for spine in ax_pn.spines.values():
                 spine.set_visible(False)
             self.pn_textbox.on_submit(self._on_pn_submit)
-            style.pin_axes_top_left(
-                self.fig, ax_pn, width_px=140, height_px=34, left_px=360, top_px=8,
+            style.pin_axes_above_left(
+                self.fig, ax_pn, self.ax, width_px=140, height_px=34, x_offset_px=260, gap_px=8,
             )
         else:
             self.pn_textbox = None
@@ -245,14 +245,19 @@ class XYPlotter:
             self._pressure_flow_text = None
 
         if card_specs:
-            card_w_px, card_h_px, gap_px, left_px = 160, 34, 10, 100
+            # Anchored above self.ax (gap_px above its top edge) rather than
+            # a fixed pixel offset from the figure's top edge — so the row
+            # keeps a constant gap above the graph instead of drifting down
+            # into it once the window gets short enough that the (fraction-
+            # based) axes top edge rises above a fixed-from-figure-top pin.
+            card_w_px, card_h_px, card_gap_px = 160, 34, 10
             for i, (key, label, unit, color) in enumerate(card_specs):
                 card_ax, value_text = style.draw_indicator_card(
                     self.fig, [0.1, 0.9, 0.1, 0.05], label, unit, color
                 )
-                style.pin_axes_top_left(
-                    self.fig, card_ax, width_px=card_w_px, height_px=card_h_px,
-                    left_px=left_px + i * (card_w_px + gap_px), top_px=8,
+                style.pin_axes_above_left(
+                    self.fig, card_ax, self.ax, width_px=card_w_px, height_px=card_h_px,
+                    x_offset_px=i * (card_w_px + card_gap_px), gap_px=8,
                 )
                 self._indicator_values[key] = value_text
 
@@ -266,9 +271,9 @@ class XYPlotter:
                 self.btn_zero_spool.on_clicked(self._zero_spool_pos)
                 style.style_button(self.btn_zero_spool, fill=style.PANEL_2, text_color=style.INK,
                                     bold=False, fontsize=8)
-                style.pin_axes_top_left(
-                    self.fig, ax_zero, width_px=50, height_px=card_h_px,
-                    left_px=left_px + card_w_px + gap_px, top_px=8,
+                style.pin_axes_above_left(
+                    self.fig, ax_zero, self.ax, width_px=50, height_px=card_h_px,
+                    x_offset_px=card_w_px + card_gap_px, gap_px=8,
                 )
 
         # Buttons (skipped when embedded — the host window owns Start/Stop)

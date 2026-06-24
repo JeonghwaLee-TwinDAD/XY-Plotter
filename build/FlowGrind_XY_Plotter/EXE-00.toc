@@ -78,7 +78,7 @@
  [],
  False,
  False,
- 1782268743,
+ 1782272484,
  [('run.exe',
    'C:\\Users\\skkjh\\anaconda3\\envs\\xy-plotter\\Lib\\site-packages\\PyInstaller\\bootloader\\Windows-64bit-intel\\run.exe',
    'EXECUTABLE')],

@@ -171,6 +171,27 @@ def pin_axes_top_left(fig, ax, *, width_px: float, height_px: float,
     pin_axes(fig, ax, compute_position)
 
 
+def pin_axes_above_left(fig, ax, ref_ax, *, width_px: float, height_px: float,
+                         x_offset_px: float = 0.0, gap_px: float) -> None:
+    """
+    Anchor *ax* to a fixed pixel size, with its BOTTOM edge gap_px above
+    *ref_ax*'s top edge and its LEFT edge x_offset_px to the right of
+    *ref_ax*'s left edge — both recomputed from ref_ax's own fraction-based
+    position every resize, so *ax* stays aligned with the graph's top-left
+    corner at any window size. Unlike pin_axes_top_left (fixed pixels from
+    the figure's own corner), fixed-from-figure anchoring drifts away from
+    the graph (vertically into it, horizontally out of alignment) once the
+    window is resized away from the size it was tuned at.
+    """
+    def compute_position(w_px, h_px):
+        ref_bbox = ref_ax.get_position()
+        y0 = ref_bbox.y1 + gap_px / h_px
+        x0 = ref_bbox.x0 + x_offset_px / w_px
+        return [x0, y0, width_px / w_px, height_px / h_px]
+
+    pin_axes(fig, ax, compute_position)
+
+
 def pin_axes_bottom_right(fig, ax, *, width_px: float, height_px: float,
                            right_px: float, bottom_px: float) -> None:
     """Anchor *ax* to a fixed pixel box measured from the bottom-right corner of *fig*."""
@@ -210,7 +231,14 @@ def _reposition_pinned(fig) -> None:
     if w_px <= 0 or h_px <= 0:
         return
     for ax, compute_position in fig._pinned_axes:
-        ax.set_position(compute_position(w_px, h_px))
+        # One bad/stale entry must not stop the rest from repositioning, nor
+        # raise out of the resize_event callback — either of those would
+        # leave later elements (or every element, on the next resize) stuck
+        # wherever they were, looking like they "froze" or vanished.
+        try:
+            ax.set_position(compute_position(w_px, h_px))
+        except Exception as exc:
+            print(f"[style] pin_axes reposition failed for {ax!r}: {exc}")
 
 
 # ---------------------------------------------------------------------------
@@ -245,12 +273,29 @@ def pin_text_top_left(fig, text_artist, *, x_px: float, top_px: float) -> None:
     pin_text(fig, text_artist, compute_xy)
 
 
+def pin_text_above_left(fig, text_artist, ref_ax, *, x_offset_px: float, gap_px: float) -> None:
+    """Anchor *text_artist* x_offset_px right of *ref_ax*'s left edge, with
+    its y a fixed pixel gap above *ref_ax*'s top edge — see
+    pin_axes_above_left for why this (vs. pin_text_top_left) is needed to
+    stay aligned with the graph at any window size."""
+    def compute_xy(w_px, h_px):
+        ref_bbox = ref_ax.get_position()
+        y = ref_bbox.y1 + gap_px / h_px
+        x = ref_bbox.x0 + x_offset_px / w_px
+        return (x, y)
+
+    pin_text(fig, text_artist, compute_xy)
+
+
 def _reposition_pinned_texts(fig) -> None:
     w_px, h_px = fig.get_size_inches() * fig.dpi
     if w_px <= 0 or h_px <= 0:
         return
     for text_artist, compute_xy in fig._pinned_texts:
-        text_artist.set_position(compute_xy(w_px, h_px))
+        try:
+            text_artist.set_position(compute_xy(w_px, h_px))
+        except Exception as exc:
+            print(f"[style] pin_text reposition failed for {text_artist!r}: {exc}")
 
 
 # ---------------------------------------------------------------------------

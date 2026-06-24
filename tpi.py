@@ -410,7 +410,7 @@ class TPI:
                 self._last_passed = summary.passed
                 ann = self.plotter.flow_ax.annotate(
                     f"4Way Lap Distance: {summary.distance:.3g} in",
-                    xy=(summary.mid_x_raw, 0), xytext=(-90, 70),
+                    xy=(summary.mid_x_raw, 0), xytext=(-90, 85),
                     textcoords="offset points", ha="right", va="bottom", color=style.INK,
                     arrowprops=dict(arrowstyle="->", color=style.INK),
                 )
@@ -425,7 +425,7 @@ class TPI:
 
         for label, x, y, color, dx, dy in (
             (f"Max. No Load Drift: {int(r.max_pressure)} psi, {'PASS' if r.max_passed else 'FAIL'}",
-             r.x_max, r.max_pressure - self.supply_press * 0.5, style.RED, -90, -60),
+             r.x_max, r.max_pressure - self.supply_press * 0.5, style.RED, -70, -60),
             (f"Min. No Load Drift: {int(r.min_pressure)} psi, {'PASS' if r.min_passed else 'FAIL'}",
              r.x_min, r.min_pressure - self.supply_press * 0.5, style.BLUE, -80, -20),
         ):
@@ -458,7 +458,7 @@ class TPI:
 
         ann = self.plotter.ax.annotate(
             f"PG Slope: {abs(r.slope_psi_per_thou):.2g} psi/thou",
-            xy=(r.mid_x_raw, r.mid_y), xytext=(-65, -40),
+            xy=(r.mid_x_raw, r.mid_y), xytext=(-65, -55),
             textcoords="offset points", ha="right", va="top", color=style.GREEN,
             arrowprops=dict(arrowstyle="->", color=style.GREEN),
         )
