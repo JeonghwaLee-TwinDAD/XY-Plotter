@@ -13,11 +13,12 @@ from typing import Dict
 # ---------------------------------------------------------------------------
 # Hardware / fixture constants
 # ---------------------------------------------------------------------------
-SIMULATION: bool = True            # True → use simulated profiles; False → live hardware
+SIMULATION: bool = False            # True → no DAQ task at all (idle indicators read zeros); False → connect a live NI-DAQmx task (incl. virtual/simulated devices configured in NI MAX), used for idle indicator reads
+SIMULATE_SWEEPS: bool = True        # True → test sweeps always use software-simulated profiles, regardless of SIMULATION (live DAQ is still used for idle indicator reads between tests)
 
 SUPPLY_PRESSURE: float  = 3000.0       # psi
 STROKE: float           = 10.0         # thousandths of an inch (plot x-axis half-range)
-FLOW_LIMIT: float       = 15.0         # gpm (plot y-axis half-range)
+FLOW_LIMIT: float       = 10.0         # gpm (plot y-axis half-range)
 SCALE_FACTOR: Dict[str, float] = {
     "X": 0.0025,   # encoder counts → inches
     "Y": 1.0,      # Hz → gpm
